@@ -4110,14 +4110,6 @@ void *slow5_sig_to_mem(slow5_rec_t *read, enum slow5_fmt format, slow5_press_t *
 
     if (format == SLOW5_FORMAT_ASCII) {
 
-        int curr_len_tmp = slow5_asprintf(&mem, "%" PRIu64, read->len_raw_signal);
-        if (curr_len_tmp > 0) {
-            curr_len = curr_len_tmp;
-        } else {
-            free(mem);
-            return NULL;
-        }
-
         // TODO memory optimise
         // <max length> = <current length> + (<max signal length> + ','/'\n') * <number of signals> + '\0'
         // <max length> = <current length> + '\n' + '\0'
@@ -4167,7 +4159,7 @@ void *slow5_sig_to_mem(slow5_rec_t *read, enum slow5_fmt format, slow5_press_t *
             compress_to_free = true;
         }
 
-        size_t cap = sizeof read->len_raw_signal + read->len_raw_signal * sizeof read->raw_signal;
+        size_t cap = read->len_raw_signal * sizeof read->raw_signal;
         mem = (char *) malloc(cap * sizeof *mem);
         SLOW5_MALLOC_CHK(mem);
 
@@ -4184,12 +4176,9 @@ void *slow5_sig_to_mem(slow5_rec_t *read, enum slow5_fmt format, slow5_press_t *
                 return NULL;
             }
             free(read->raw_signal);
-            read->len_raw_signal = bytes_raw_sig;
             read->raw_signal = (int16_t *) raw_sig_svb;
         }
 
-        memcpy(mem + curr_len, &read->len_raw_signal, sizeof read->len_raw_signal);
-        curr_len += sizeof read->len_raw_signal;
         memcpy(mem + curr_len, read->raw_signal, bytes_raw_sig);
         curr_len += bytes_raw_sig;
 
