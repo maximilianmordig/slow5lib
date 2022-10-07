@@ -763,6 +763,21 @@ static inline int slow5_hdr_print(slow5_hdr_t *header, enum slow5_fmt format, sl
 void *slow5_rec_to_mem(slow5_rec_t *read, slow5_aux_meta_t *aux_meta, enum slow5_fmt format, slow5_press_t *compress, size_t *n);
 
 /**
+ * Get the read raw signal in the specified format.
+ *
+ * Returns NULL if read is NULL,
+ * or format is SLOW5_FORMAT_UNKNOWN,
+ * or the read attribute values are invalid
+ *
+ * @param   read        slow5_rec pointer
+ * @param   format      slow5 format to write the entry in
+ * @param   written     number of bytes written to the returned buffer
+ * @param   compress    compress structure
+ * @return  malloced string to use free() on, NULL on error
+ */
+void *slow5_sig_to_mem(slow5_rec_t *read, enum slow5_fmt format, slow5_press_t *compress, size_t *n);
+
+/**
  * Print a read entry in the specified format to a file pointer.
  *
  * On success, the number of bytes written is returned.
@@ -778,6 +793,24 @@ int slow5_rec_fwrite(FILE *fp, slow5_rec_t *read, slow5_aux_meta_t *aux_meta, en
 static inline int slow5_rec_print(slow5_rec_t *read, slow5_aux_meta_t *aux_meta, enum slow5_fmt format, slow5_press_t *compress) {
     return slow5_rec_fwrite(stdout, read, aux_meta, format, compress);
 }
+
+/**
+ * Print a read raw signal in the specified format to a file pointer.
+ *
+ * On success, the number of bytes written is returned.
+ * On error, -1 is returned.
+ *
+ * @param   fp      output file pointer
+ * @param   read    slow5_rec pointer
+ * @param   format  slow5 format to write entry in
+ * @param   compress
+ * @return  number of bytes written, -1 on error
+ */
+int slow5_sig_fwrite(FILE *fp, slow5_rec_t *read, enum slow5_fmt format, slow5_press_t *compress);
+static inline int slow5_sig_print(slow5_rec_t *read, enum slow5_fmt format, slow5_press_t *compress) {
+    return slow5_sig_fwrite(stdout, read, format, compress);
+}
+
 
 /**
  * Print the binary end of file to a file pointer.

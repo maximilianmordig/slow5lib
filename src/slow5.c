@@ -3761,6 +3761,40 @@ int slow5_rec_fwrite(FILE *fp, struct slow5_rec *read, struct slow5_aux_meta *au
     return ret;
 }
 
+/**
+ * Print a read raw signal in the specified format to a file pointer.
+ *
+ * Error if fp or read is NULL,
+ * of if the format is SLOW5_FORMAT_UNKNOWN.
+ *
+ * On success, the number of bytes written is returned.
+ * On error, -1 is returned.
+ *
+ * @param   fp      output file pointer
+ * @param   read    slow5_rec pointer
+ * @return  number of bytes written, -1 on error
+ */
+int slow5_sig_fwrite(FILE *fp, slow5_rec_t *read, enum slow5_fmt format, slow5_press_t *compress)
+{
+    int ret;
+    void *read_mem;
+    size_t read_size;
+
+    if (fp == NULL || read == NULL || (read_mem = slow5_sig_to_mem(read, format, compress, &read_size)) == NULL) {
+        return -1;
+    }
+
+    size_t n = fwrite(read_mem, read_size, 1, fp);
+    if (n != 1) {
+        ret = -1;
+    } else {
+        ret = read_size; // TODO is this okay
+    }
+
+    free(read_mem);
+    return ret;
+}
+
 int slow5_write_bytes(char *mem, size_t bytes, slow5_file_t *s5p){
     size_t n = fwrite(mem, bytes, 1, s5p->fp);
     int ret;
@@ -4013,6 +4047,151 @@ void *slow5_rec_to_mem(struct slow5_rec *read, struct slow5_aux_meta *aux_meta, 
                 }
             }
         }
+
+        slow5_compress_footer_next(compress->record_press);
+        slow5_rec_size_t record_size;
+
+        size_t record_sizet;
+        void *comp_mem = slow5_ptr_compress(compress->record_press, mem, curr_len, &record_sizet);
+        record_size = record_sizet;
+        free(mem);
+
+        if (comp_mem != NULL) {
+            uint8_t *comp_mem_full = (uint8_t *) malloc(sizeof record_size + record_size);
+            SLOW5_MALLOC_CHK(comp_mem_full);
+            // Copy size of compressed record
+            memcpy(comp_mem_full, &record_size, sizeof record_size);
+            // Copy compressed record
+            memcpy(comp_mem_full + sizeof record_size, comp_mem, record_size);
+            free(comp_mem);
+
+            curr_len = sizeof record_size + record_size;
+            mem = (char *) comp_mem_full;
+        } else {
+            free(mem);
+            curr_len = 0;
+            mem = NULL;
+        }
+
+        if (compress_to_free) {
+            slow5_press_free(compress);
+        }
+    }
+
+    if (n != NULL) {
+        *n = curr_len;
+    }
+
+    return (void *) mem;
+}
+
+/**
+ * Get the read raw signal in the specified format.
+ *
+ * Returns NULL if read is NULL,
+ * or format is SLOW5_FORMAT_UNKNOWN,
+ * or the read attribute values are invalid
+ *
+ * @param   read        slow5_rec pointer
+ * @param   format      slow5 format to write the entry in
+ * @param   compress    compress structure
+ * @param   n           number of bytes written to the returned buffer
+ * @return  malloced string to use free() on, NULL on error
+ */
+void *slow5_sig_to_mem(slow5_rec_t *read, enum slow5_fmt format, slow5_press_t *compress, size_t *n)
+{
+    char *mem = NULL;
+
+    if (read == NULL || format == SLOW5_FORMAT_UNKNOWN) {
+        return NULL;
+    }
+
+    size_t curr_len = 0;
+
+    if (format == SLOW5_FORMAT_ASCII) {
+
+        int curr_len_tmp = slow5_asprintf(&mem, "%" PRIu64, read->len_raw_signal);
+        if (curr_len_tmp > 0) {
+            curr_len = curr_len_tmp;
+        } else {
+            free(mem);
+            return NULL;
+        }
+
+        // TODO memory optimise
+        // <max length> = <current length> + (<max signal length> + ','/'\n') * <number of signals> + '\0'
+        // <max length> = <current length> + '\n' + '\0'
+        const size_t max_len = read->len_raw_signal != 0 ? curr_len + (INT16_MAX_LENGTH + 1) * read->len_raw_signal + 1 : curr_len + 1 + 1;
+        mem = (char *) realloc(mem, max_len * sizeof *mem);
+        SLOW5_MALLOC_CHK(mem);
+
+        char sig_buf[SLOW5_SIGNAL_BUF_FIXED_CAP];
+
+        uint64_t i;
+        for (i = 1; i < read->len_raw_signal; ++ i) {
+            int sig_len = sprintf(sig_buf, SLOW5_FORMAT_STRING_RAW_SIGNAL SLOW5_SEP_ARRAY, read->raw_signal[i-1]);
+
+            memcpy(mem + curr_len, sig_buf, sig_len);
+            curr_len += sig_len;
+        }
+        if (read->len_raw_signal > 0) {
+            // Trailing signal
+            int len_to_cp = sprintf(sig_buf, SLOW5_FORMAT_STRING_RAW_SIGNAL, read->raw_signal[i-1]);
+            memcpy(mem + curr_len, sig_buf, len_to_cp);
+            curr_len += len_to_cp;
+        }
+
+        size_t cap = max_len;
+        // Trailing newline
+        // Realloc if necessary
+        if (curr_len + 2 >= cap) { // +2 for '\n' and '\0'
+            cap *= 2;
+            mem = (char *) realloc(mem, cap);
+            SLOW5_MALLOC_CHK(mem);
+        }
+        strcpy(mem + curr_len, "\n"); // Copies null byte as well
+        curr_len += 1;
+
+    } else if (format == SLOW5_FORMAT_BINARY) {
+
+        bool compress_to_free = false;
+        if (compress == NULL) {
+            slow5_press_method_t method = {SLOW5_COMPRESS_NONE,SLOW5_COMPRESS_NONE};
+            compress = slow5_press_init(method);
+            /* TODO error if this fails */
+            // I added a quick fix below to prevent a dangerous situation, but error codes and cleaning up must be propoerly done - hasindu
+            if(compress==NULL){
+                return NULL;
+            }
+
+            compress_to_free = true;
+        }
+
+        size_t cap = sizeof read->len_raw_signal + read->len_raw_signal * sizeof read->raw_signal;
+        mem = (char *) malloc(cap * sizeof *mem);
+        SLOW5_MALLOC_CHK(mem);
+
+        size_t bytes_raw_sig = read->len_raw_signal * sizeof *read->raw_signal;
+
+        if (compress->signal_press->method != SLOW5_COMPRESS_NONE) { /* signal compression */
+            uint8_t *raw_sig_svb = slow5_ptr_compress_solo(compress->signal_press->method, read->raw_signal, read->len_raw_signal * sizeof *read->raw_signal, &bytes_raw_sig);
+            if (!raw_sig_svb) {
+                SLOW5_ERROR("%s", "Signal compression failed.");
+                free(mem);
+                if (compress_to_free) {
+                    slow5_press_free(compress);
+                }
+                return NULL;
+            }
+            free(read->raw_signal);
+            read->len_raw_signal = bytes_raw_sig;
+            read->raw_signal = (int16_t *) raw_sig_svb;
+        }
+
+        memcpy(mem + curr_len, &read->len_raw_signal, sizeof read->len_raw_signal);
+        curr_len += sizeof read->len_raw_signal;
+        memcpy(mem + curr_len, read->raw_signal, bytes_raw_sig);
+        curr_len += bytes_raw_sig;
 
         slow5_compress_footer_next(compress->record_press);
         slow5_rec_size_t record_size;
