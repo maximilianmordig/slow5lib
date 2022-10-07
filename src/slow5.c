@@ -3772,16 +3772,15 @@ int slow5_rec_fwrite(FILE *fp, struct slow5_rec *read, struct slow5_aux_meta *au
  *
  * @param   fp      output file pointer
  * @param   read    slow5_rec pointer
- * @param   sig_press   signal compression method
  * @return  number of bytes written, -1 on error
  */
-int slow5_sig_fwrite(FILE *fp, slow5_rec_t *read, enum slow5_fmt format, enum slow5_press_method sig_press)
+int slow5_sig_fwrite(FILE *fp, slow5_rec_t *read, enum slow5_fmt format, slow5_press_t *compress)
 {
     int ret;
     void *read_mem;
     size_t read_size;
 
-    if (fp == NULL || read == NULL || (read_mem = slow5_sig_to_mem(read, format, sig_press, &read_size)) == NULL) {
+    if (fp == NULL || read == NULL || (read_mem = slow5_sig_to_mem(read, format, compress, &read_size)) == NULL) {
         return -1;
     }
 
@@ -4095,11 +4094,11 @@ void *slow5_rec_to_mem(struct slow5_rec *read, struct slow5_aux_meta *aux_meta, 
  *
  * @param   read        slow5_rec pointer
  * @param   format      slow5 format to write the entry in
- * @param   sig_press   signal compression method
+ * @param   compress    compress structure
  * @param   n           number of bytes written to the returned buffer
  * @return  malloced string to use free() on, NULL on error
  */
-void *slow5_sig_to_mem(slow5_rec_t *read, enum slow5_fmt format, enum slow5_press_method sig_press, size_t *n)
+void *slow5_sig_to_mem(slow5_rec_t *read, enum slow5_fmt format, slow5_press_t *compress, size_t *n)
 {
     char *mem = NULL;
 
@@ -4110,6 +4109,14 @@ void *slow5_sig_to_mem(slow5_rec_t *read, enum slow5_fmt format, enum slow5_pres
     size_t curr_len = 0;
 
     if (format == SLOW5_FORMAT_ASCII) {
+
+        int curr_len_tmp = slow5_asprintf(&mem, "%" PRIu64, read->len_raw_signal);
+        if (curr_len_tmp > 0) {
+            curr_len = curr_len_tmp;
+        } else {
+            free(mem);
+            return NULL;
+        }
 
         // TODO memory optimise
         // <max length> = <current length> + (<max signal length> + ','/'\n') * <number of signals> + '\0'
@@ -4147,10 +4154,20 @@ void *slow5_sig_to_mem(slow5_rec_t *read, enum slow5_fmt format, enum slow5_pres
 
     } else if (format == SLOW5_FORMAT_BINARY) {
 
-        slow5_press_method_t compress_method = { SLOW5_COMPRESS_NONE, sig_press };
-        slow5_press_t *compress = slow5_press_init(compress_method);
+        bool compress_to_free = false;
+        if (compress == NULL) {
+            slow5_press_method_t method = {SLOW5_COMPRESS_NONE,SLOW5_COMPRESS_NONE};
+            compress = slow5_press_init(method);
+            /* TODO error if this fails */
+            // I added a quick fix below to prevent a dangerous situation, but error codes and cleaning up must be propoerly done - hasindu
+            if(compress==NULL){
+                return NULL;
+            }
 
-        size_t cap = read->len_raw_signal * sizeof read->raw_signal;
+            compress_to_free = true;
+        }
+
+        size_t cap = sizeof read->len_raw_signal + read->len_raw_signal * sizeof read->raw_signal;
         mem = (char *) malloc(cap * sizeof *mem);
         SLOW5_MALLOC_CHK(mem);
 
@@ -4161,7 +4178,9 @@ void *slow5_sig_to_mem(slow5_rec_t *read, enum slow5_fmt format, enum slow5_pres
             if (!raw_sig_svb) {
                 SLOW5_ERROR("%s", "Signal compression failed.");
                 free(mem);
-                slow5_press_free(compress);
+                if (compress_to_free) {
+                    slow5_press_free(compress);
+                }
                 return NULL;
             }
             free(read->raw_signal);
@@ -4169,6 +4188,8 @@ void *slow5_sig_to_mem(slow5_rec_t *read, enum slow5_fmt format, enum slow5_pres
             read->raw_signal = (int16_t *) raw_sig_svb;
         }
 
+        memcpy(mem + curr_len, &read->len_raw_signal, sizeof read->len_raw_signal);
+        curr_len += sizeof read->len_raw_signal;
         memcpy(mem + curr_len, read->raw_signal, bytes_raw_sig);
         curr_len += bytes_raw_sig;
 
@@ -4197,7 +4218,9 @@ void *slow5_sig_to_mem(slow5_rec_t *read, enum slow5_fmt format, enum slow5_pres
             mem = NULL;
         }
 
-        slow5_press_free(compress);
+        if (compress_to_free) {
+            slow5_press_free(compress);
+        }
     }
 
     if (n != NULL) {

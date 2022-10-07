@@ -771,11 +771,11 @@ void *slow5_rec_to_mem(slow5_rec_t *read, slow5_aux_meta_t *aux_meta, enum slow5
  *
  * @param   read        slow5_rec pointer
  * @param   format      slow5 format to write the entry in
- * @param   sig_press   signal compression method
- * @param   n           number of bytes written to the returned buffer
+ * @param   written     number of bytes written to the returned buffer
+ * @param   compress    compress structure
  * @return  malloced string to use free() on, NULL on error
  */
-void *slow5_sig_to_mem(slow5_rec_t *read, enum slow5_fmt format, enum slow5_press_method sig_press, size_t *n);
+void *slow5_sig_to_mem(slow5_rec_t *read, enum slow5_fmt format, slow5_press_t *compress, size_t *n);
 
 /**
  * Print a read entry in the specified format to a file pointer.
@@ -803,12 +803,12 @@ static inline int slow5_rec_print(slow5_rec_t *read, slow5_aux_meta_t *aux_meta,
  * @param   fp      output file pointer
  * @param   read    slow5_rec pointer
  * @param   format  slow5 format to write entry in
- * @param   sig_press   signal compression method
+ * @param   compress
  * @return  number of bytes written, -1 on error
  */
-int slow5_sig_fwrite(FILE *fp, slow5_rec_t *read, enum slow5_fmt format, enum slow5_press_method sig_press);
-static inline int slow5_sig_print(slow5_rec_t *read, enum slow5_fmt format, enum slow5_press_method sig_press) {
-    return slow5_sig_fwrite(stdout, read, format, sig_press);
+int slow5_sig_fwrite(FILE *fp, slow5_rec_t *read, enum slow5_fmt format, slow5_press_t *compress);
+static inline int slow5_sig_print(slow5_rec_t *read, enum slow5_fmt format, slow5_press_t *compress) {
+    return slow5_sig_fwrite(stdout, read, format, compress);
 }
 
 
