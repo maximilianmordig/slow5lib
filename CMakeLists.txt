@@ -37,8 +37,6 @@ unset(SLOW5_ENABLE_MT CACHE)
 
 # include_directories(${PROJECT_SOURCE_DIR}/src)
 # include_directories(${PROJECT_SOURCE_DIR}/test)
-include_directories(${PROJECT_SOURCE_DIR}/include)
-include_directories(${PROJECT_SOURCE_DIR}/thirdparty/streamvbyte/include)
 
 set(slow5_ src/slow5.c)
 set(slow5_idx src/slow5_idx.c)
@@ -66,6 +64,8 @@ else()
 endif(SLOW5_LINK_STATIC)
 unset(SLOW5_LINK_STATIC CACHE)
 
+#message(STATUS "PROJECT_SOURCE_DIR: ${PROJECT_SOURCE_DIR}")
+target_include_directories(slow5 PUBLIC ${PROJECT_SOURCE_DIR}/include)
 target_link_libraries(slow5 streamvbyte_slow5)
 
 # Build a static lib
