@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.5)
 
+# todo: ignored otherwise (probably better solution, but not too familiar with persistence of vars now)
+cmake_policy(SET CMP0077 NEW)
+set(SLOW5_USE_ZSTD ON)
+set(SLOW5_LINK_STATIC ON)
+
 # choose the architecture
 set(DEPLOY_PLATFORM x86)
 # set_property(CACHE DEPLOY_PLATFORM PROPERTY STRINGS unknown x86 arm64-v8a armeabi-v7a)
@@ -14,7 +19,7 @@ if(SLOW5_USE_ZSTD)
     add_compile_options("-DSLOW5_USE_ZSTD")
     link_libraries("-lzstd")
 endif(SLOW5_USE_ZSTD)
-unset(SLOW5_USE_ZSTD CACHE)
+# unset(SLOW5_USE_ZSTD CACHE)
 
 # option(SLOW5_USE_OPENMP "Use OPENMP" OFF) #OFF by default
 # if(SLOW5_USE_OPENMP)
@@ -25,8 +30,6 @@ unset(SLOW5_USE_ZSTD CACHE)
 
 # include_directories(${PROJECT_SOURCE_DIR}/src)
 # include_directories(${PROJECT_SOURCE_DIR}/test)
-include_directories(${PROJECT_SOURCE_DIR}/include)
-include_directories(${PROJECT_SOURCE_DIR}/thirdparty/streamvbyte/include)
 
 set(slow5_ src/slow5.c)
 set(slow5_idx src/slow5_idx.c)
@@ -52,9 +55,12 @@ else()
     message( STATUS "libslow5 will create a shared lib" )
     add_library(slow5 SHARED ${slow5_} ${slow5_idx} ${slow5_misc} ${slow5_press})
 endif(SLOW5_LINK_STATIC)
-unset(SLOW5_LINK_STATIC CACHE)
+# unset(SLOW5_LINK_STATIC CACHE)
 
-target_link_libraries(slow5 streamvbyte_slow5)
+target_include_directories(slow5 PUBLIC ${PROJECT_SOURCE_DIR}/include)
+#message(STATUS "PROJECT_SOURCE_DIR: ${PROJECT_SOURCE_DIR}")
+
+target_link_libraries(slow5 PRIVATE streamvbyte_slow5 z)
 
 # Build a static lib
 #add_library(slow5 STATIC ${slow5_} ${slow5_idx} ${slow5_misc} ${slow5_press})
